@@ -183,7 +183,7 @@ export default function App() {
         try {
           data = JSON.parse(responseText);
         } catch (e) {
-          throw new Error('Respons dari server tidak valid (bukan JSON).');
+          throw new Error(`Respons dari server tidak valid (bukan JSON). Status: ${response.status}. Isi: ${responseText.slice(0, 150)}`);
         }
         if (response.ok && data.success) {
           // Mark all as synced
@@ -284,7 +284,7 @@ export default function App() {
         try {
           data = JSON.parse(responseText);
         } catch (e) {
-          throw new Error('Respons dari server tidak valid (bukan JSON).');
+          throw new Error(`Respons dari server tidak valid (bukan JSON). Status: ${response.status}. Isi: ${responseText.slice(0, 150)}`);
         }
         if (response.ok && data.success) {
           // Saved successfully online
@@ -357,7 +357,7 @@ export default function App() {
       try {
         data = JSON.parse(responseText);
       } catch (e) {
-        throw new Error('Respons dari server tidak valid (bukan JSON).');
+        throw new Error(`Respons dari server tidak valid (bukan JSON). Status: ${response.status}. Isi: ${responseText.slice(0, 150)}`);
       }
       if (response.ok && data.success) {
         // Mark all transactions as synced
