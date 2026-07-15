@@ -427,7 +427,7 @@ export default function App() {
   };
 
   // Handle Quick Entry redirection from Dashboard Tab
-  const handleNavigateToRecord = (type: 'debit' | 'credit') => {
+  const handleNavigateToRecord = (type: 'debit' | 'credit' | null) => {
     setQuickRecordType(type);
     setActiveTab('transaksi');
   };

@@ -42,6 +42,75 @@ export default function SyncTab({
   const [syncLogs, setSyncLogs] = useState<string[]>([]);
   const [isUrlSaving, setIsUrlSaving] = useState(false);
 
+  // Filter Tanggal
+  const [filterPreset, setFilterPreset] = useState<'all' | 'today' | 'this_month' | 'last_month' | 'custom'>('all');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
+  // Helper untuk mendapatkan rentang tanggal berdasarkan preset
+  const getPresetDates = (preset: 'all' | 'today' | 'this_month' | 'last_month' | 'custom') => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    
+    if (preset === 'all') {
+      return { start: '', end: '' };
+    }
+    if (preset === 'today') {
+      return { start: todayStr, end: todayStr };
+    }
+    if (preset === 'this_month') {
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
+      return {
+        start: `${year}-${month}-01`,
+        end: `${year}-${month}-${String(lastDay).padStart(2, '0')}`
+      };
+    }
+    if (preset === 'last_month') {
+      let year = now.getFullYear();
+      let monthIndex = now.getMonth() - 1;
+      if (monthIndex < 0) {
+        monthIndex = 11;
+        year--;
+      }
+      const month = String(monthIndex + 1).padStart(2, '0');
+      const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+      return {
+        start: `${year}-${month}-01`,
+        end: `${year}-${month}-${String(lastDay).padStart(2, '0')}`
+      };
+    }
+    return null;
+  };
+
+  const handlePresetChange = (preset: 'all' | 'today' | 'this_month' | 'last_month' | 'custom') => {
+    setFilterPreset(preset);
+    const dates = getPresetDates(preset);
+    if (dates) {
+      setStartDate(dates.start);
+      setEndDate(dates.end);
+    }
+  };
+
+  const handleDateChange = (type: 'start' | 'end', value: string) => {
+    setFilterPreset('custom');
+    if (type === 'start') {
+      setStartDate(value);
+    } else {
+      setEndDate(value);
+    }
+  };
+
+  // Filter transaksi berdasarkan rentang tanggal
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(tx => {
+      if (startDate && tx.date < startDate) return false;
+      if (endDate && tx.date > endDate) return false;
+      return true;
+    });
+  }, [transactions, startDate, endDate]);
+
   // Filter transactions into pending vs synced
   const syncStats = useMemo(() => {
     let pendingCount = 0;
@@ -106,8 +175,13 @@ export default function SyncTab({
   const handleExportExcel = () => {
     addLog('Mengekspor data ke Excel (CSV format)...');
     
+    if (filteredTransactions.length === 0) {
+      addLog('Batal Ekspor Excel: Tidak ada data transaksi dalam rentang tanggal terpilih.');
+      return;
+    }
+    
     // Sort transactions chronologically
-    const sortedTx = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
+    const sortedTx = [...filteredTransactions].sort((a, b) => a.date.localeCompare(b.date));
     
     // Header columns in Indonesian
     const headers = ['ID Transaksi', 'Tanggal', 'Kategori', 'Keterangan', 'Debet (Pemasukan)', 'Kredit (Pengeluaran)', 'Saldo'];
@@ -136,57 +210,83 @@ export default function SyncTab({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `Buku_Kas_Laporan_${new Date().toISOString().split('T')[0]}.csv`);
+    
+    const dateRangeStr = startDate && endDate 
+      ? `${startDate}_ke_${endDate}` 
+      : startDate 
+        ? `dari_${startDate}` 
+        : endDate 
+          ? `sampai_${endDate}` 
+          : 'Semua_Periode';
+
+    link.setAttribute('download', `Buku_Kas_Laporan_${dateRangeStr}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    addLog('Ekspor Excel selesai!');
+    addLog(`Ekspor Excel selesai! ${filteredTransactions.length} baris data berhasil diunduh.`);
   };
 
   // EXPORT TO PDF
   const handleExportPDF = () => {
     addLog('Mempersiapkan dokumen PDF...');
+    
+    if (filteredTransactions.length === 0) {
+      addLog('Batal Ekspor PDF: Tidak ada data transaksi dalam rentang tanggal terpilih.');
+      return;
+    }
+
     try {
       const doc = new jsPDF();
       
       // Page setup
       doc.setFont('Helvetica', 'bold');
-      doc.setFontSize(22);
+      doc.setFontSize(20);
       doc.setTextColor(16, 185, 129); // Emerald Green
-      doc.text('LAPORAN BUKU KAS ANDROID', 14, 20);
+      doc.text('LAPORAN BUKU KAS ANDROID', 14, 18);
       
       doc.setFont('Helvetica', 'normal');
-      doc.setFontSize(10);
+      doc.setFontSize(9);
       doc.setTextColor(100, 116, 139); // Slate Grey
-      doc.text(`Waktu Cetak: ${new Date().toLocaleString('id-ID')}`, 14, 26);
-      doc.text(`Email Pengguna: ravinaarcamanik@gmail.com`, 14, 31);
+      doc.text(`Waktu Cetak: ${new Date().toLocaleString('id-ID')}`, 14, 24);
+      doc.text(`Email Pengguna: ravinaarcamanik@gmail.com`, 14, 29);
+
+      // Selected date filter range label in PDF report header
+      const dateRangeLabel = startDate && endDate 
+        ? `${startDate} s/d ${endDate}` 
+        : startDate 
+          ? `Mulai ${startDate}` 
+          : endDate 
+            ? `Hingga ${endDate}` 
+            : 'Semua Periode';
+      doc.setFont('Helvetica', 'bold');
+      doc.text(`Periode Laporan: ${dateRangeLabel}`, 14, 34);
       
       // Financial Summary Box
       let totalDebit = 0;
       let totalCredit = 0;
-      transactions.forEach(t => {
+      filteredTransactions.forEach(t => {
         totalDebit += t.debit;
         totalCredit += t.credit;
       });
       const balance = totalDebit - totalCredit;
 
       doc.setFillColor(241, 245, 249); // light background
-      doc.roundedRect(14, 36, 182, 24, 3, 3, 'F');
+      doc.roundedRect(14, 39, 182, 24, 3, 3, 'F');
       
       doc.setFont('Helvetica', 'bold');
       doc.setFontSize(9);
       doc.setTextColor(100, 116, 139);
-      doc.text('TOTAL PEMASUKAN', 20, 43);
-      doc.text('TOTAL PENGELUARAN', 80, 43);
-      doc.text('SALDO AKHIR', 140, 43);
+      doc.text('TOTAL PEMASUKAN', 20, 46);
+      doc.text('TOTAL PENGELUARAN', 80, 46);
+      doc.text('SALDO AKHIR', 140, 46);
 
       doc.setFontSize(12);
       doc.setTextColor(16, 185, 129); // Green
-      doc.text(`Rp ${totalDebit.toLocaleString('id-ID')}`, 20, 51);
+      doc.text(`Rp ${totalDebit.toLocaleString('id-ID')}`, 20, 54);
       doc.setTextColor(239, 68, 68); // Red
-      doc.text(`Rp ${totalCredit.toLocaleString('id-ID')}`, 80, 51);
+      doc.text(`Rp ${totalCredit.toLocaleString('id-ID')}`, 80, 54);
       doc.setTextColor(30, 41, 59); // Dark slate
-      doc.text(`Rp ${balance.toLocaleString('id-ID')}`, 140, 51);
+      doc.text(`Rp ${balance.toLocaleString('id-ID')}`, 140, 54);
 
       // Ledger Table
       doc.setFont('Helvetica', 'bold');
@@ -195,22 +295,22 @@ export default function SyncTab({
       
       // Draw Table Header
       doc.setFillColor(30, 41, 59); // Slate 800
-      doc.rect(14, 68, 182, 8, 'F');
+      doc.rect(14, 70, 182, 8, 'F');
       
-      doc.text('Tgl', 16, 73);
-      doc.text('Kategori', 38, 73);
-      doc.text('Keterangan', 72, 73);
-      doc.text('Pemasukan (Rp)', 125, 73);
-      doc.text('Pengeluaran (Rp)', 158, 73);
+      doc.text('Tgl', 16, 75);
+      doc.text('Kategori', 38, 75);
+      doc.text('Keterangan', 72, 75);
+      doc.text('Pemasukan (Rp)', 125, 75);
+      doc.text('Pengeluaran (Rp)', 158, 75);
 
       // Sort transactions oldest first
-      const sortedTx = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
+      const sortedTx = [...filteredTransactions].sort((a, b) => a.date.localeCompare(b.date));
       
       doc.setFont('Helvetica', 'normal');
       doc.setFontSize(8.5);
       doc.setTextColor(51, 65, 85);
 
-      let yPosition = 82;
+      let yPosition = 84;
       sortedTx.forEach((tx, index) => {
         // Handle multi-page layout if table overflows page length
         if (yPosition > 275) {
@@ -257,8 +357,16 @@ export default function SyncTab({
       doc.setTextColor(148, 163, 184);
       doc.text('Laporan Buku Kas Android • Sinkronisasi Google Sheets • Diunduh secara Aman', 14, 287);
 
-      doc.save(`Buku_Kas_Laporan_${new Date().toISOString().split('T')[0]}.pdf`);
-      addLog('Ekspor PDF selesai!');
+      const dateRangeFileStr = startDate && endDate 
+        ? `${startDate}_ke_${endDate}` 
+        : startDate 
+          ? `dari_${startDate}` 
+          : endDate 
+            ? `sampai_${endDate}` 
+            : 'Semua_Periode';
+
+      doc.save(`Buku_Kas_Laporan_${dateRangeFileStr}.pdf`);
+      addLog(`Ekspor PDF selesai! ${filteredTransactions.length} baris data berhasil diunduh.`);
     } catch (e: any) {
       console.error(e);
       addLog(`Gagal membuat PDF: ${e.message}`);
@@ -312,9 +420,80 @@ export default function SyncTab({
           <FileDown className="w-4 h-4 text-emerald-400" />
           Ekspor Laporan Keuangan
         </h4>
-        <p className="text-[10px] text-slate-500 mb-4 leading-relaxed">
+        <p className="text-[10px] text-slate-500 mb-3 leading-relaxed">
           Unduh laporan keuangan Anda untuk kebutuhan pembukuan eksternal, presentasi, ataupun analisis detail di komputer.
         </p>
+
+        {/* Filter Rentang Tanggal */}
+        <div className="mb-4 p-3.5 bg-slate-900/50 border border-slate-800/80 rounded-xl flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+              Filter Rentang Tanggal Ekspor
+            </span>
+            <div className="grid grid-cols-4 gap-1.5">
+              {[
+                { id: 'all', label: 'Semua' },
+                { id: 'today', label: 'Hari Ini' },
+                { id: 'this_month', label: 'Bulan Ini' },
+                { id: 'custom', label: 'Kustom' },
+              ].map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => handlePresetChange(preset.id as any)}
+                  className={`py-1.5 px-2 rounded-lg text-[10px] font-medium transition-all text-center ${
+                    filterPreset === preset.id
+                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold'
+                      : 'bg-slate-950 hover:bg-slate-800 text-slate-400 border border-slate-800'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="flex flex-col gap-1">
+              <label className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">
+                Tanggal Mulai
+              </label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => handleDateChange('start', e.target.value)}
+                className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-slate-200 focus:outline-none focus:border-emerald-500 font-mono"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">
+                Tanggal Selesai
+              </label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => handleDateChange('end', e.target.value)}
+                className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-[11px] text-slate-200 focus:outline-none focus:border-emerald-500 font-mono"
+              />
+            </div>
+          </div>
+
+          {/* Status info bar */}
+          <div className="flex items-center justify-between mt-0.5 text-[9px] text-slate-400 border-t border-slate-800/60 pt-2">
+            <span>
+              Terfilter:{' '}
+              <strong className="text-emerald-400">
+                {filteredTransactions.length}
+              </strong>{' '}
+              dari {transactions.length} baris data
+            </span>
+            {filteredTransactions.length === 0 && transactions.length > 0 && (
+              <span className="text-rose-400 font-semibold animate-pulse">
+                Rentang kosong!
+              </span>
+            )}
+          </div>
+        </div>
 
         <div className="grid grid-cols-2 gap-3">
           <button

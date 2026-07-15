@@ -30,7 +30,7 @@ import {
 
 interface DashboardTabProps {
   transactions: Transaction[];
-  onNavigateToRecord: (type: 'debit' | 'credit') => void;
+  onNavigateToRecord: (type: 'debit' | 'credit' | null) => void;
 }
 
 export default function DashboardTab({ transactions, onNavigateToRecord }: DashboardTabProps) {
@@ -282,7 +282,7 @@ export default function DashboardTab({ transactions, onNavigateToRecord }: Dashb
             Catatan Terakhir
           </h4>
           <button 
-            onClick={() => onNavigateToRecord('debit')} // Navigates to Transaction tab
+            onClick={() => onNavigateToRecord(null)} // Navigates to Transaction tab
             className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold uppercase tracking-wider flex items-center"
             id="btn-see-all-activities"
           >
