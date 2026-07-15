@@ -159,13 +159,64 @@ export default function App() {
     }, 4500);
   };
 
-  // 3. Auto sync trigger logic when going back online
-  const autoSyncPendingTransactions = async () => {
-    const pendingCount = transactions.filter(t => t.syncStatus === 'pending' || t.syncStatus === 'failed').length;
-    const savedUrl = localStorage.getItem(LOCAL_STORAGE_URL_KEY) || appsScriptUrl;
+  // Helper untuk melakukan sinkronisasi dengan dua metode (Metode Langsung & Server Proxy)
+  // Ini sangat krusial agar aplikasi tetap dapat melakukan sinkronisasi ketika diakses langsung
+  // di tab browser baru di mana server proxy /api/sync kemungkinan tidak aktif atau terhalang gateway.
+  const executeSync = async (url: string, txList: Transaction[]): Promise<{ success: boolean; message: string }> => {
+    let syncSuccess = false;
+    let syncData: any = null;
+    let directErrorDetail = '';
 
-    if (pendingCount > 0 && savedUrl) {
-      setIsSyncing(true);
+    // Langkah 1: Coba kirim langsung ke Google Apps Script (client-side fetch)
+    // Menggunakan 'Content-Type: text/plain' untuk menghindari preflight CORS (OPTIONS request)
+    try {
+      console.log('Mencoba sinkronisasi langsung (client-side) ke Google Apps Script...');
+      const directResponse = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8'
+        },
+        body: JSON.stringify({
+          action: 'sync',
+          transactions: txList
+        }),
+        redirect: 'follow'
+      });
+
+      if (directResponse.ok) {
+        const text = await directResponse.text();
+        const isHtml = text.trim().startsWith('<') || text.includes('<!DOCTYPE html>') || text.includes('<html');
+        if (!isHtml) {
+          try {
+            const data = JSON.parse(text);
+            if (data.success || data.success === undefined) {
+              syncSuccess = true;
+              syncData = data;
+              console.log('Sinkronisasi langsung berhasil!');
+            } else {
+              directErrorDetail = data.message || 'Apps Script melaporkan kegagalan.';
+            }
+          } catch (e) {
+            console.warn('Gagal memproses JSON respon langsung, akan mencoba via proxy server.');
+          }
+        } else {
+          if (text.includes('Google Accounts') || text.includes('Sign in') || text.includes('ServiceLogin')) {
+            directErrorDetail = 'Akses Google Apps Script dibatasi. Pastikan Anda mengatur "Who has access" ke "Anyone" (Siapa saja) saat melakukan deployment.';
+          } else {
+            directErrorDetail = 'Apps Script mengembalikan halaman HTML. Pastikan URL Apps Script benar.';
+          }
+        }
+      } else {
+        directErrorDetail = `Google Apps Script merespons dengan status HTTP ${directResponse.status}.`;
+      }
+    } catch (directErr: any) {
+      console.warn('Sinkronisasi langsung diblokir CORS atau gagal jaringan, mencoba via server proxy...', directErr);
+      directErrorDetail = directErr.message || 'Gagal terhubung langsung ke Apps Script.';
+    }
+
+    // Langkah 2: Jika metode langsung gagal/diblokir, coba via server proxy /api/sync
+    if (!syncSuccess) {
+      console.log('Menjalankan sinkronisasi cadangan via server proxy (/api/sync)...');
       try {
         const response = await fetch('/api/sync', {
           method: 'POST',
@@ -173,8 +224,8 @@ export default function App() {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            appsScriptUrl: savedUrl,
-            transactions: transactions // Sends entire dataset to merge or update on sheet
+            appsScriptUrl: url,
+            transactions: txList
           })
         });
 
@@ -183,17 +234,50 @@ export default function App() {
         try {
           data = JSON.parse(responseText);
         } catch (e) {
-          throw new Error(`Respons dari server tidak valid (bukan JSON). Status: ${response.status}. Isi: ${responseText.slice(0, 150)}`);
+          const displayErr = directErrorDetail 
+            ? `${directErrorDetail} (Proxy Server: 404)`
+            : `Respons server tidak valid (bukan JSON). Status: ${response.status}. Isi: ${responseText.slice(0, 100)}`;
+          throw new Error(displayErr);
         }
+
         if (response.ok && data.success) {
+          syncSuccess = true;
+          syncData = data;
+        } else {
+          throw new Error(data.message || directErrorDetail || 'Gagal melakukan sinkronisasi.');
+        }
+      } catch (proxyErr: any) {
+        console.error('Kedua metode sinkronisasi gagal:', proxyErr);
+        return {
+          success: false,
+          message: proxyErr.message || 'Sinkronisasi gagal. Hubungan terputus.'
+        };
+      }
+    }
+
+    return {
+      success: true,
+      message: syncData?.message || 'Sinkronisasi berhasil!'
+    };
+  };
+
+  // 3. Auto sync trigger logic when going back online
+  const autoSyncPendingTransactions = async () => {
+    const pendingCount = transactions.filter(t => t.syncStatus === 'pending' || t.syncStatus === 'failed').length;
+    const savedUrl = localStorage.getItem(LOCAL_STORAGE_URL_KEY) || appsScriptUrl;
+
+    if (pendingCount > 0 && savedUrl) {
+      setIsSyncing(true);
+      try {
+        const result = await executeSync(savedUrl, transactions);
+        if (result.success) {
           // Mark all as synced
           const updated = transactions.map(t => ({ ...t, syncStatus: 'synced' as const }));
           setTransactions(updated);
           localStorage.setItem(LOCAL_STORAGE_TX_KEY, JSON.stringify(updated));
           triggerToast('success', `Sinkronisasi otomatis berhasil! ${pendingCount} antrean diunggah.`);
         } else {
-          // If response not ok, do nothing, they stay pending
-          console.warn('Auto sync failed:', data.message);
+          console.warn('Auto sync failed:', result.message);
         }
       } catch (err) {
         console.error('Error during auto sync:', err);
@@ -267,26 +351,8 @@ export default function App() {
 
     if (mode === 'instant' && isOnline && appsScriptUrl) {
       try {
-        // Send to online proxy
-        const response = await fetch('/api/sync', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            appsScriptUrl: appsScriptUrl,
-            transactions: updatedTransactions
-          })
-        });
-
-        const responseText = await response.text();
-        let data;
-        try {
-          data = JSON.parse(responseText);
-        } catch (e) {
-          throw new Error(`Respons dari server tidak valid (bukan JSON). Status: ${response.status}. Isi: ${responseText.slice(0, 150)}`);
-        }
-        if (response.ok && data.success) {
+        const result = await executeSync(appsScriptUrl, updatedTransactions);
+        if (result.success) {
           // Saved successfully online
           setTransactions(updatedTransactions);
           localStorage.setItem(LOCAL_STORAGE_TX_KEY, JSON.stringify(updatedTransactions));
@@ -298,7 +364,7 @@ export default function App() {
           const fallbackList = [fallbackRecord, ...transactions];
           setTransactions(fallbackList);
           localStorage.setItem(LOCAL_STORAGE_TX_KEY, JSON.stringify(fallbackList));
-          triggerToast('info', 'Google Sheet merespons lambat. Transaksi disimpan di antrean lokal.');
+          triggerToast('info', `Simpan ke Sheet ditunda: ${result.message}. Transaksi disimpan di antrean lokal.`);
           return true;
         }
       } catch (err) {
@@ -341,35 +407,18 @@ export default function App() {
 
     setIsSyncing(true);
     try {
-      const response = await fetch('/api/sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          appsScriptUrl,
-          transactions: transactions // Sends full set to replace or merge
-        })
-      });
-
-      const responseText = await response.text();
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (e) {
-        throw new Error(`Respons dari server tidak valid (bukan JSON). Status: ${response.status}. Isi: ${responseText.slice(0, 150)}`);
-      }
-      if (response.ok && data.success) {
+      const result = await executeSync(appsScriptUrl, transactions);
+      if (result.success) {
         // Mark all transactions as synced
         const updated = transactions.map(t => ({ ...t, syncStatus: 'synced' as const }));
         setTransactions(updated);
         localStorage.setItem(LOCAL_STORAGE_TX_KEY, JSON.stringify(updated));
         setIsSyncing(false);
         triggerToast('success', 'Sinkronisasi penuh berhasil diselesaikan!');
-        return { success: true, message: data.message || 'Sinkronisasi sukses.' };
+        return { success: true, message: result.message || 'Sinkronisasi sukses.' };
       } else {
         setIsSyncing(false);
-        return { success: false, message: data.message || 'Respons server tidak valid.' };
+        return { success: false, message: result.message };
       }
     } catch (err: any) {
       setIsSyncing(false);
