@@ -49,17 +49,53 @@ async function startServer() {
     }
 
     try {
-      // Send data to user's Apps Script Web App
-      const response = await fetch(appsScriptUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: 'sync',
-          transactions: transactions
-        })
+      let currentUrl = appsScriptUrl;
+      let method = 'POST';
+      let headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      let body: string | undefined = JSON.stringify({
+        action: 'sync',
+        transactions: transactions
       });
+
+      let response: any = null;
+      let redirectCount = 0;
+      const maxRedirects = 5;
+
+      while (redirectCount < maxRedirects) {
+        response = await fetch(currentUrl, {
+          method,
+          headers,
+          body,
+          redirect: 'manual' // Manually follow redirects to ensure correct method conversion (POST -> GET) and header stripping
+        });
+
+        // Handle redirect statuses (301, 302, 303, 307, 308)
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get('location');
+          if (!location) {
+            break;
+          }
+          
+          // Resolve relative redirects
+          currentUrl = new URL(location, currentUrl).toString();
+          redirectCount++;
+
+          // For 301, 302, 303, convert to GET and strip body & headers
+          if (response.status === 301 || response.status === 302 || response.status === 303) {
+            method = 'GET';
+            headers = {};
+            body = undefined;
+          }
+          continue;
+        }
+        break;
+      }
+
+      if (!response) {
+        throw new Error('Tidak ada respons dari Google Apps Script setelah pengalihan.');
+      }
 
       const responseText = await response.text();
       let responseData;

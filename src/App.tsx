@@ -178,7 +178,13 @@ export default function App() {
           })
         });
 
-        const data = await response.json();
+        const responseText = await response.text();
+        let data;
+        try {
+          data = JSON.parse(responseText);
+        } catch (e) {
+          throw new Error('Respons dari server tidak valid (bukan JSON).');
+        }
         if (response.ok && data.success) {
           // Mark all as synced
           const updated = transactions.map(t => ({ ...t, syncStatus: 'synced' as const }));
@@ -273,7 +279,13 @@ export default function App() {
           })
         });
 
-        const data = await response.json();
+        const responseText = await response.text();
+        let data;
+        try {
+          data = JSON.parse(responseText);
+        } catch (e) {
+          throw new Error('Respons dari server tidak valid (bukan JSON).');
+        }
         if (response.ok && data.success) {
           // Saved successfully online
           setTransactions(updatedTransactions);
@@ -340,7 +352,13 @@ export default function App() {
         })
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        throw new Error('Respons dari server tidak valid (bukan JSON).');
+      }
       if (response.ok && data.success) {
         // Mark all transactions as synced
         const updated = transactions.map(t => ({ ...t, syncStatus: 'synced' as const }));
