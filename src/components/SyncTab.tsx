@@ -153,7 +153,7 @@ export default function SyncTab({
       doc.setFont('Helvetica', 'bold');
       doc.setFontSize(22);
       doc.setTextColor(16, 185, 129); // Emerald Green
-      doc.text('LAPORAN BUKU KAS RAVINA', 14, 20);
+      doc.text('LAPORAN BUKU KAS ANDROID', 14, 20);
       
       doc.setFont('Helvetica', 'normal');
       doc.setFontSize(10);
@@ -255,7 +255,7 @@ export default function SyncTab({
       // Footer
       doc.setFontSize(8);
       doc.setTextColor(148, 163, 184);
-      doc.text('Laporan Buku Kas Ravina • Sinkronisasi Google Sheets • Diunduh secara Aman', 14, 287);
+      doc.text('Laporan Buku Kas Android • Sinkronisasi Google Sheets • Diunduh secara Aman', 14, 287);
 
       doc.save(`Buku_Kas_Laporan_${new Date().toISOString().split('T')[0]}.pdf`);
       addLog('Ekspor PDF selesai!');

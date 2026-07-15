@@ -107,7 +107,7 @@ export default function AndroidContainer({
         <header className="h-16 bg-gradient-to-r from-emerald-600 to-teal-700 px-5 flex items-center justify-between shadow-md z-30 select-none">
           <div className="flex flex-col">
             <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-              Buku Kas Ravina
+              Buku Kas Android
             </h1>
             <span className="text-[10px] text-emerald-100 opacity-90 truncate max-w-[200px]">
               {userEmail}
