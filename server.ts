@@ -49,81 +49,83 @@ async function startServer() {
     }
 
     try {
-      let currentUrl = appsScriptUrl;
-      let method = 'POST';
-      let headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      let body: string | undefined = JSON.stringify({
-        action: 'sync',
-        transactions: transactions
+      console.log('Memulai sinkronisasi ke Apps Script:', appsScriptUrl);
+
+      // Node.js fetch (undici) mengikuti redirect (302 Found) otomatis secara default.
+      // Di redirect 302, fetch akan mengubah method POST menjadi GET secara otomatis dan
+      // menghapus body/headers sesuai standar web, yang mana tepat seperti yang dibutuhkan
+      // oleh server deployment Google Apps Script untuk mengakses output doGet hasil eksekusi doPost.
+      const response = await fetch(appsScriptUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'sync',
+          transactions: transactions
+        }),
+        redirect: 'follow'
       });
 
-      let response: any = null;
-      let redirectCount = 0;
-      const maxRedirects = 5;
-
-      while (redirectCount < maxRedirects) {
-        response = await fetch(currentUrl, {
-          method,
-          headers,
-          body,
-          redirect: 'manual' // Manually follow redirects to ensure correct method conversion (POST -> GET) and header stripping
-        });
-
-        // Handle redirect statuses (301, 302, 303, 307, 308)
-        if (response.status >= 300 && response.status < 400) {
-          const location = response.headers.get('location');
-          if (!location) {
-            break;
-          }
-          
-          // Resolve relative redirects
-          currentUrl = new URL(location, currentUrl).toString();
-          redirectCount++;
-
-          // For 301, 302, 303, convert to GET and strip body & headers
-          if (response.status === 301 || response.status === 302 || response.status === 303) {
-            method = 'GET';
-            headers = {};
-            body = undefined;
-          }
-          continue;
-        }
-        break;
-      }
-
-      if (!response) {
-        throw new Error('Tidak ada respons dari Google Apps Script setelah pengalihan.');
-      }
+      console.log(`Respons dari Apps Script: Status ${response.status} (${response.statusText})`);
 
       const responseText = await response.text();
+      
+      // Deteksi jika Google Apps Script mengembalikan halaman HTML (misalnya login Google atau halaman error Google)
+      const isHtml = responseText.trim().startsWith('<') || responseText.includes('<!DOCTYPE html>') || responseText.includes('<html');
+
+      if (isHtml) {
+        console.warn('Apps Script mengembalikan respons HTML, bukan JSON. Preview isi respons:', responseText.slice(0, 300));
+        
+        let customMessage = 'Google Apps Script mengembalikan halaman HTML (Bukan JSON). ';
+        if (responseText.includes('Google Accounts') || responseText.includes('Sign in') || responseText.includes('ServiceLogin')) {
+          customMessage += 'Penyebab: Akses dibatasi. Pastikan Anda telah menyetel "Who has access" ke "Anyone" (Siapa saja) saat melakukan deployment (Penerapan Baru) di Google Apps Script Anda.';
+        } else {
+          customMessage += 'Penyebab: Ada kesalahan konfigurasi atau URL Apps Script yang dimasukkan salah/tidak valid.';
+        }
+
+        return res.json({
+          success: false,
+          simulated: false,
+          message: customMessage,
+          error: responseText.slice(0, 300)
+        });
+      }
+
       let responseData;
       try {
         responseData = JSON.parse(responseText);
       } catch (e) {
-        responseData = { text: responseText };
+        console.warn('Gagal memproses respons sebagai JSON. Isi respons:', responseText.slice(0, 300));
+        return res.json({
+          success: false,
+          simulated: false,
+          message: 'Respons dari Google Apps Script tidak valid (bukan format JSON yang benar).',
+          error: responseText.slice(0, 300)
+        });
       }
 
-      if (response.ok) {
+      if (response.ok && (responseData.success || responseData.success === undefined)) {
         return res.json({
           success: true,
           simulated: false,
           data: responseData,
-          message: 'Sinkronisasi dengan Google Sheet berhasil!'
+          message: responseData.message || 'Sinkronisasi dengan Google Sheet berhasil!'
         });
       } else {
-        return res.status(response.status).json({
+        return res.json({
           success: false,
-          message: `Gagal sinkronisasi. Apps Script merespons dengan status ${response.status}.`,
+          simulated: false,
+          message: responseData.message || `Gagal sinkronisasi. Apps Script merespons dengan status ${response.status}.`,
           error: responseText
         });
       }
     } catch (error: any) {
       console.error('Error during Google Sheet sync:', error);
-      return res.status(500).json({
+      return res.json({
         success: false,
-        message: 'Koneksi gagal. Silakan periksa kembali URL Apps Script Anda.',
+        simulated: false,
+        message: 'Koneksi gagal. Silakan periksa kembali URL Apps Script Anda atau pastikan server Anda terhubung ke internet.',
         error: error.message
       });
     }
