@@ -17,10 +17,34 @@
     <script>
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("/sw.js")
-          .then(reg => console.log("Service Worker registered:", reg))
+          .then(reg => {
+            console.log("Service Worker registered:", reg);
+            // Cek jika ada update Service Worker yang sedang menunggu
+            reg.addEventListener('updatefound', () => {
+              const newWorker = reg.installing;
+              if (newWorker) {
+                newWorker.addEventListener('statechange', () => {
+                  if (newWorker.state === 'activated') {
+                    console.log("Service worker baru aktif! Memuat ulang...");
+                    window.location.reload();
+                  }
+                });
+              }
+            });
+          })
           .catch(err => console.error("Service Worker failed:", err));
+
+        // Memuat ulang saat service worker baru mengambil alih halaman (controllerchange)
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!refreshing) {
+            refreshing = true;
+            console.log("Service worker mengambil alih! Memuat ulang...");
+            window.location.reload();
+          }
+        });
       }
-</script>
+    </script>
 
 
 
