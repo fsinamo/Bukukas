@@ -1,0 +1,6 @@
+{
+  "name": "Buku Kas Ravina",
+  "description": "Aplikasi Buku Kas (Cash Book) berbasis Android dengan dukungan offline & online, sinkronisasi otomatis ke Google Sheets via Apps Script, ekspor PDF/Excel, grafik analisis interaktif, sistem login password, dan pengingat harian.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
